@@ -3,6 +3,12 @@ const path = require('path');
 const fs = require('fs');
 const { necesitaConfiguracion, ejecutarWizard } = require('./setup-wizard.js');
 
+// Releases page shown in the "update failed, download by hand" popup. Upstream
+// hardcoded the original author's repo here; it arrived with the v1.5.74 merge and
+// would have pointed users at his downloads. Same UPDATE_REPO key as update-checker.js
+// (read straight from process.env — launcher.js never loads dotenv).
+const URL_RELEASES_PROPIO = `https://github.com/${(process.env.UPDATE_REPO || 'chefhousgit/Pokemon-Monitor-TCGP').trim()}/releases/latest`;
+
 let esSea = false;
 try { esSea = require('node:sea').isSea(); } catch (e) { esSea = false; }
 
@@ -293,7 +299,7 @@ async function iniciarActualizacion() {
     const rutaFalloUpdate = path.join(__dirname, 'update_fallo.txt');
     const rutaPendiente = PENDING_UPDATE_PATH;
     const mensajePopup = esUltimoIntento
-        ? 'Monitor Pokemon could not finish updating automatically after 3 tries (the old .exe stayed locked, likely antivirus). Please download the latest version by hand from https://github.com/AleCast09/Pokemon-Monitor-TCGP/releases/latest and replace MonitorPokemon.exe with it.'
+        ? 'Monitor Pokemon could not finish updating automatically after 3 tries (the old .exe stayed locked, likely antivirus). Please download the latest version by hand from ' + URL_RELEASES_PROPIO + ' and replace MonitorPokemon.exe with it.'
         : '';
     // Nota: "timeout" de Windows depende de tener una consola/stdin real y falla
     // (o se saltea) cuando corre sin ventana, como en nuestro caso — por eso las

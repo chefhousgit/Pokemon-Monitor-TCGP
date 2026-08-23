@@ -32,6 +32,15 @@ async function bundlear() {
     vaciarCarpeta(DIST);
     fs.mkdirSync(DIST, { recursive: true });
 
+    // __BUILD_VERSION__ (2026-08-23, bug real reportado por un usuario -- wR98): grabada
+    // literal en el bundle en el momento de compilar, asi launcher.js puede comparar "con que
+    // version fui compilado" contra lo que version.json dice en disco -- si un update anterior
+    // reemplazo el version.json pero el swap del .exe en si nunca se completo (antivirus
+    // bloqueando el archivo, etc.), esta copia sigue siendo la vieja aunque el disco diga otra
+    // cosa, y version.json solo no alcanza para notarlo (se sobreescribe ANTES de que el swap
+    // se intente, ver iniciarActualizacion en launcher.js).
+    const versionActual = JSON.parse(fs.readFileSync(path.join(RAIZ, 'version.json'), 'utf8')).version;
+
     await esbuild.build({
         entryPoints: [path.join(RAIZ, 'entry.js')],
         bundle: true,
@@ -40,7 +49,7 @@ async function bundlear() {
         format: 'cjs',
         outfile: BUNDLE_PATH,
         external: ['node:sqlite', 'node:sea', 'readline/promises'],
-        define: { '__dirname': 'global.__baseDir' },
+        define: { '__dirname': 'global.__baseDir', '__BUILD_VERSION__': JSON.stringify(versionActual) },
         banner: { js: BANNER },
         logLevel: 'info'
     });

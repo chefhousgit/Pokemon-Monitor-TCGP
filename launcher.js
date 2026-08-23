@@ -119,6 +119,48 @@ function tomarLock() {
     fs.writeFileSync(LOCK_PATH, String(process.pid));
 }
 
+// BUILD_VERSION (2026-08-23, bug real reportado por un usuario -- wR98): __BUILD_VERSION__ es
+// una constante grabada literal en el bundle al compilar (ver scripts/build-exe.js) -- la
+// version REAL con la que se compilo este .exe, independiente de lo que version.json diga en
+// disco (ese archivo se sobreescribe con la version nueva desde el momento de la descarga,
+// antes de que el swap del .exe siquiera se intente -- ver el comentario grande en
+// iniciarActualizacion mas abajo). En modo dev (sin bundlear) __BUILD_VERSION__ no existe --
+// typeof no tira error sobre un identificador no declarado, a diferencia de usarlo directo.
+const BUILD_VERSION = typeof __BUILD_VERSION__ !== 'undefined' ? __BUILD_VERSION__ : null;
+const VERSION_JSON_PATH = path.join(__dirname, 'version.json');
+
+function esVersionMasNueva(remota, local) {
+    const a = String(remota).split('.').map(Number);
+    const b = String(local).split('.').map(Number);
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+        const x = a[i] || 0, y = b[i] || 0;
+        if (x > y) return true;
+        if (x < y) return false;
+    }
+    return false;
+}
+
+// Se corre una sola vez al arrancar (main(), antes de levantar bot/trading/heartbeat): si
+// version.json en disco dice una version mas nueva que la que esta copia REALMENTE es
+// (BUILD_VERSION) Y todavia queda un MonitorPokemon.new.exe sin instalar (prueba de que se
+// llego a descargar pero el swap nunca se completo, sea por lo que sea -- este bug existia
+// antes del reintento automatico de mas abajo, asi que instalaciones que ya se quedaron
+// pegadas de esa forma no tienen ningun .pending_update.json para reintentar solas), se
+// re-arma el flag desde cero para que el mecanismo de reintento normal lo termine sin que el
+// usuario tenga que notar nada raro (boton gris, version rara en el Panel, etc.) y reportarlo.
+function sanarSwapIncompletoSiHaceFalta() {
+    if (!esSea || !BUILD_VERSION) return;
+    try {
+        if (fs.existsSync(PENDING_UPDATE_PATH)) return;
+        const disco = JSON.parse(fs.readFileSync(VERSION_JSON_PATH, 'utf8'));
+        const rutaNueva = path.join(__dirname, 'MonitorPokemon.new.exe');
+        if (disco.version && esVersionMasNueva(disco.version, BUILD_VERSION) && fs.existsSync(rutaNueva)) {
+            logLinea(`⚠️ Detected an incomplete update from a previous run (this copy is still v${BUILD_VERSION}, disk reports v${disco.version}) -- re-queuing the swap to finish it automatically.`);
+            fs.writeFileSync(PENDING_UPDATE_PATH, JSON.stringify({ version: disco.version, listoEn: Date.now() }));
+        }
+    } catch (e) {}
+}
+
 function liberarLock() {
     try { fs.unlinkSync(LOCK_PATH); } catch (e) {}
 }
@@ -428,6 +470,7 @@ async function main() {
         return;
     }
     tomarLock();
+    sanarSwapIncompletoSiHaceFalta();
 
     while (necesitaConfiguracion()) {
         await ejecutarWizard();

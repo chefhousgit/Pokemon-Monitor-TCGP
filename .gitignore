@@ -65,3 +65,6 @@ bin/
 # build outputs copied to the repo root for gh release upload
 MonitorPokemon.exe
 MonitorPokemonPanel.exe
+
+# runtime-refreshed copy of card_types.json (the tracked one is the shipped fallback)
+assets/card_types.local.json

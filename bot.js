@@ -7086,8 +7086,17 @@ function mapearRarezaNumericaPreview(rarityNum, code) {
 // solo cada varias horas (cartas nuevas de una expansión recién salida), y
 // releerlo es barato — así el proceso no necesita reiniciarse para enterarse.
 function cargarCardTypesBot() {
+    // card_types.json is tracked in git as the shipped fallback, but the auto-sync
+    // refreshes it at runtime -- writing to the tracked file made every `git pull`
+    // abort with "local changes would be overwritten". The sync now writes
+    // card_types.local.json (gitignored); prefer it, fall back to the shipped copy.
+    const rutaLocal = path.join(__dirname, 'assets', 'card_types.local.json');
+    const rutaShipped = path.join(__dirname, 'assets', 'card_types.json');
     try {
-        return JSON.parse(fs.readFileSync(path.join(__dirname, 'assets', 'card_types.json'), 'utf8'));
+        if (fs.existsSync(rutaLocal)) return JSON.parse(fs.readFileSync(rutaLocal, 'utf8'));
+    } catch (e) { /* corrupt local copy -- fall through to the shipped one */ }
+    try {
+        return JSON.parse(fs.readFileSync(rutaShipped, 'utf8'));
     } catch (e) {
         return {};
     }

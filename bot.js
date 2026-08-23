@@ -765,7 +765,7 @@ function elegirBannerLocalAleatorio(carpeta) {
     }
     return null;
 }
-const REPO_WALLPAPERS_BOT = 'AleCast09/Pokemon-Icon-Wallpapers';
+const REPO_WALLPAPERS_BOT = 'chefhousgit/Pokemon-Icon-Wallpapers';
 const TTL_LISTADO_WALLPAPERS_MS = 60 * 60 * 1000;
 const _cacheListadoWallpapers = new Map(); // carpetaRepo -> { archivos, ts }
 async function obtenerListaWallpapersRepo(carpetaRepo) {
@@ -1403,7 +1403,7 @@ function encontrarImagenPorIllustration(rutaMaster, illustrationId) {
 // DIRECTO en CardImageCache (no en una carpeta aparte propia del bot) -- asi
 // no duplica peso, y una vez bajada queda indistinguible de una imagen que
 // el usuario ya tenia, sin volver a pegarle a la red por la misma carta.
-const REPO_CARTAS_BASE_BOT = 'https://raw.githubusercontent.com/AleCast09/Pokemon-TCGP-Card-Image/main';
+const REPO_CARTAS_BASE_BOT = 'https://raw.githubusercontent.com/chefhousgit/Pokemon-TCGP-Card-Image/main';
 async function obtenerImagenRepoCartasBot(rutaMaster, illustrationId) {
     if (!rutaMaster || !illustrationId) return null;
     const dirCache = path.join(rutaMaster, 'CardImageCache');
@@ -5820,7 +5820,6 @@ dashboardApp.get('/tutorials', async (req, res) => {
       ${botonesHtml}
       <div class="sidebar-donate">
         <p>If you liked what I made, I hope I can count on a donation as support for the work!! 💛</p>
-        <a class="btn-donate" href="https://ko-fi.com/alecast" target="_blank" rel="noopener">☕ Donate on Ko-fi</a>
       </div>
     </aside>
     <main>
@@ -10539,12 +10538,6 @@ client.on('interactionCreate', async interaction => {
                                 // maneje ninguna interacción, Discord abre la URL
                                 // directo en el cliente, así que funciona igual
                                 // mandado desde un webhook plano.
-                                if (tipo === 'apoyo') {
-                                    payloadBienvenida.components = [{
-                                        type: 1,
-                                        components: [{ type: 2, style: 5, label: '☕ Donate on Ko-fi', url: 'https://ko-fi.com/alecast' }]
-                                    }];
-                                }
                                 if (tipo === 'tutoriales') {
                                     const filasTutoriales = [];
                                     for (let j = 0; j < TUTORIALES_LISTA.length; j += 5) {

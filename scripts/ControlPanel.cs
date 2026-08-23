@@ -903,11 +903,6 @@ public class ControlPanelForm : Form {
             var url = (infoDiscord != null && !string.IsNullOrEmpty(infoDiscord.tutorialsUrl)) ? infoDiscord.tutorialsUrl : "http://localhost:3005/tutorials";
             try { Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true }); } catch { }
         };
-        var botonDonar = NuevoBoton("☕ Support (Ko-fi)", 465, 397, 155);
-        botonDonar.Click += (s, e) => {
-            try { Process.Start(new ProcessStartInfo { FileName = "https://ko-fi.com/alecast", UseShellExecute = true }); } catch { }
-        };
-
         // Toggle dia/noche (reubicado 2026-08-08 -- antes vivia en la fila de iconos que
         // se saco de abajo): un icono chico en la esquina, discreto, no un boton principal.
         // Letra ASCII simple, no emoji -- los emoji a color salen como icono roto en este

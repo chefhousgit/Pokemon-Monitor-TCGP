@@ -789,7 +789,7 @@ function encontrarImagen(rutaMaster, nombreArchivo) {
 // guarda DIRECTO en CardImageCache (no en una carpeta aparte) para no
 // duplicar peso -- una vez bajada queda igual que una imagen que el usuario
 // ya tenia.
-const REPO_CARTAS_BASE = 'https://raw.githubusercontent.com/AleCast09/Pokemon-TCGP-Card-Image/main';
+const REPO_CARTAS_BASE = 'https://raw.githubusercontent.com/chefhousgit/Pokemon-TCGP-Card-Image/main';
 async function obtenerImagenRepoCartas(rutaMaster, illustrationId) {
     if (!rutaMaster || !illustrationId) return null;
     const dirCache = path.join(rutaMaster, 'CardImageCache');

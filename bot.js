@@ -3875,8 +3875,95 @@ async function ejecutarFreeTradeDesdeDiscord(interaction, { cartaId, friendId, f
     return await interaction.followUp({ content: mensaje, components: [filaNext], ephemeral: true });
 }
 
-const RUTA_SEND_TRADE_CARD_SCRIPT = path.join(__dirname, 'automation', '_SendTradeCard.ahk');
-const RUTA_FINALIZE_TRADE_CARD_SCRIPT = path.join(__dirname, 'automation', '_FinalizeTradeCard.ahk');
+// Reemplazado 2026-08-23 (a pedido explicito del usuario): antes apuntaba al viejo
+// _SendTradeCard.ahk (a ciegas, sin needles) -- ahora usa _FriendTradeOfferCard.ahk, needle-
+// verificado, recortado de la parte de la donante en Main Trade (_DonorOfferCard.ahk), sin
+// tocar nada de Main. El nombre de la constante/funcion se dejo igual para no tener que
+// actualizar cada call-site.
+const RUTA_SEND_TRADE_CARD_SCRIPT = path.join(__dirname, 'automation', '_FriendTradeOfferCard.ahk');
+const RUTA_FINALIZE_TRADE_CARD_SCRIPT = path.join(__dirname, 'automation', '_FriendTradeFinalize.ahk');
+const RUTA_FRIENDTRADE_CHECK_PENDING_OFFER_SCRIPT = path.join(__dirname, 'automation', '_FriendTradeCheckPendingOffer.ahk');
+
+// Mismo motivo que RUTA_CHECK_PENDING_OFFER_SCRIPT de Main Trade (2026-08-22, a pedido
+// explicito del usuario): si un intento anterior de Friend Trade ya llego a ofrecer la carta
+// (el juego se crasheo, o simplemente se reintento el paso), no tiene sentido volver a
+// correr _SendTradeCard.ahk de cero -- puede fallar contra una pantalla que ya avanzo. Se
+// chequea primero si ya hay una oferta pendiente real; si la hay, se saltea directo a
+// Finalize Trade.
+// Reemplazado 2026-08-23 (a pedido explicito del usuario): _FriendTradeAcceptOffer.ahk (el
+// armado a mano) se reemplaza por _FriendTradeRespondToOffer.ahk, que reusa las mismas
+// needles de la donante que _FriendTradeOfferCard.ahk para la pantalla "Choose a Card to
+// Trade" (es la misma pantalla, confirmado en vivo, sin importar el camino).
+const RUTA_FRIENDTRADE_ACCEPT_OFFER_SCRIPT = path.join(__dirname, 'automation', '_FriendTradeRespondToOffer.ahk');
+function ejecutarFriendTradeAcceptOffer(winTitle, callback) {
+    const ahkExe = rutaAutoHotkey();
+    const folderPath = carpetaBaseMuMu();
+    if (!ahkExe || !folderPath || !fs.existsSync(RUTA_FRIENDTRADE_ACCEPT_OFFER_SCRIPT)) {
+        return callback(false, 'faltan_archivos');
+    }
+    // A diferencia de ejecutarSendTradeCard (2 args, sin outputFile), este script SI espera un
+    // 3er arg de outputFile (misma firma que _FriendTradeCheckPendingOffer.ahk) -- se pasa uno
+    // descartable porque acá solo importa el codigo de salida del proceso, no su contenido.
+    const outputFile = path.join(os.tmpdir(), `ftrade_accept_${winTitle}_${Date.now()}.txt`);
+    spawnAhkConProteccion(ahkExe, [RUTA_FRIENDTRADE_ACCEPT_OFFER_SCRIPT, winTitle, folderPath, outputFile], { windowsHide: false }, 3 * 60 * 1000, (ok, detalle) => {
+        try { if (fs.existsSync(outputFile)) fs.unlinkSync(outputFile); } catch (e) {}
+        callback(ok, detalle, outputFile);
+    });
+}
+
+function ejecutarFriendTradeCheckPendingOffer(winTitle) {
+    const ahkExe = rutaAutoHotkey();
+    const folderPath = carpetaBaseMuMu();
+    if (!ahkExe || !folderPath || !fs.existsSync(RUTA_FRIENDTRADE_CHECK_PENDING_OFFER_SCRIPT)) {
+        return Promise.resolve({ ok: false, resultado: 'faltan_archivos' });
+    }
+    // Timeout subido de 15s a 45s (2026-08-23, mismo motivo que ejecutarFriendTradeGoToSocialHub):
+    // el script puede esperar hasta 15s por la needle de entrada, mas el tutorial de 3 paginas
+    // (si aparece, ~12s de taps) mas el loop del badge (hasta 6s) -- 15s era corto incluso en
+    // el camino feliz sin ningun problema real.
+    const outputFile = path.join(os.tmpdir(), `ftrade_check_${winTitle}_${Date.now()}.txt`);
+    return ejecutarPasoAhk(ahkExe, RUTA_FRIENDTRADE_CHECK_PENDING_OFFER_SCRIPT, [winTitle, folderPath], 45 * 1000, outputFile);
+}
+
+// Manda una foto real de Friend Trade al canal de Trading (2026-08-23, a pedido explicito
+// del usuario -- "igualito que Main Trade"): mismo patron que mandarFotoTradeAlCanal de
+// ejecutarMainTradeDesdeDiscord, pero standalone (esta se llama desde el handler del boton
+// Next Trade/Finalize Trade, no desde dentro de esa funcion). No arma el embed de datos de
+// carta (construirEmbedDetalleCarta necesita un cartaId que este handler no tiene a mano) --
+// solo la foto con un mensaje, mismo criterio que ya usa Main Trade para sus propias fotos
+// de "carta elegida a ciegas" (sinDatosCarta).
+async function mandarFotoFriendTradeAlCanal(discordUserId, rutaFoto, mensajeTexto) {
+    if (!rutaFoto || !fs.existsSync(rutaFoto)) return;
+    try {
+        const canalTradePhoto = await obtenerCanalComando(discordUserId, 'cmd_run_instance');
+        if (!canalTradePhoto?.webhook_url) return;
+        const embedFoto = new EmbedBuilder().setColor(0xE91E63).setImage('attachment://trade_photo.png');
+        const formFoto = new FormData();
+        formFoto.append('payload_json', JSON.stringify({ content: mensajeTexto, embeds: [embedFoto.toJSON()] }));
+        formFoto.append('files[0]', fs.readFileSync(rutaFoto), { filename: 'trade_photo.png' });
+        await axios.post(`${canalTradePhoto.webhook_url}?wait=true`, formFoto, { headers: formFoto.getHeaders(), timeout: 15000 });
+    } catch (e) {
+        console.error('DEBUG: error mandando la foto de Friend Trade al canal de Trading:', e?.response?.data || e?.message || e);
+    }
+}
+
+// Separado de _FriendTradeCheckPendingOffer.ahk (2026-08-23, a pedido explicito del usuario):
+// los 4 taps de "cerrar dialogos hasta Social Hub" ahora viven en su propio script, reusable
+// antes de cualquier accion futura (no solo el chequeo de oferta pendiente).
+const RUTA_FRIENDTRADE_GOTO_SOCIALHUB_SCRIPT = path.join(__dirname, 'automation', '_FriendTradeGoToSocialHub.ahk');
+function ejecutarFriendTradeGoToSocialHub(winTitle) {
+    const ahkExe = rutaAutoHotkey();
+    const folderPath = carpetaBaseMuMu();
+    if (!ahkExe || !folderPath || !fs.existsSync(RUTA_FRIENDTRADE_GOTO_SOCIALHUB_SCRIPT)) {
+        return Promise.resolve({ ok: false, resultado: 'faltan_archivos' });
+    }
+    // Timeout subido de 15s a 30s (2026-08-23, bug real reproducido en vivo: el script hace 4
+    // taps secuenciales, cada uno espera 4s por default (16s solo en esperas, mas la conexion
+    // ADB inicial) -- 15s era mas corto que el tiempo real que tarda incluso sin ningun
+    // problema, asi que reportaba timeout aunque llegara bien a Social Hub.
+    const outputFile = path.join(os.tmpdir(), `ftrade_gotohub_${winTitle}_${Date.now()}.txt`);
+    return ejecutarPasoAhk(ahkExe, RUTA_FRIENDTRADE_GOTO_SOCIALHUB_SCRIPT, [winTitle, folderPath], 30 * 1000, outputFile);
+}
 
 function carpetaBaseMuMu() {
     const managerPath = rutaMuMuManager();
@@ -3890,16 +3977,36 @@ function ejecutarSendTradeCard(winTitle, callback) {
     if (!ahkExe || !folderPath || !fs.existsSync(RUTA_SEND_TRADE_CARD_SCRIPT)) {
         return callback(false, 'faltan_archivos');
     }
-    spawnAhkConProteccion(ahkExe, [RUTA_SEND_TRADE_CARD_SCRIPT, winTitle, folderPath], { windowsHide: false }, 3 * 60 * 1000, callback);
+    // _FriendTradeOfferCard.ahk (2026-08-23) SI espera un 3er arg de outputFile (a diferencia
+    // del viejo _SendTradeCard.ahk) -- mismo criterio que ejecutarFriendTradeAcceptOffer.
+    const outputFile = path.join(os.tmpdir(), `ftrade_offer_${winTitle}_${Date.now()}.txt`);
+    spawnAhkConProteccion(ahkExe, [RUTA_SEND_TRADE_CARD_SCRIPT, winTitle, folderPath, outputFile], { windowsHide: false }, 3 * 60 * 1000, (ok, detalle) => {
+        try { if (fs.existsSync(outputFile)) fs.unlinkSync(outputFile); } catch (e) {}
+        // outputFile devuelto (2026-08-23, a pedido explicito del usuario -- "igualito que
+        // Main Trade"): de ahi sale el nombre real de la foto que este script guarda
+        // (_OfferPhoto.png), para poder mandarla al canal de Trading despues.
+        callback(ok, detalle, outputFile);
+    });
 }
 
+// Reemplazado 2026-08-23 (a pedido explicito del usuario): antes usaba el viejo
+// _FinalizeTradeCard.ahk (a ciegas, apagaba la instancia el solito) -- ahora usa
+// _FriendTradeFinalize.ahk, needle-verificado, copiado tal cual de la parte de la donante en
+// Main Trade (_DonorRespondAndFinalize.ahk). Ese script NO apaga la instancia (Main Trade
+// tampoco lo hace ahi, lo hace bot.js aparte) -- se agrega el apagado explicito despues del
+// success, mismo criterio que ya usa Main Trade.
 function ejecutarFinalizeTradeCard(winTitle, instanceIndex, callback) {
     const ahkExe = rutaAutoHotkey();
     const folderPath = carpetaBaseMuMu();
     if (!ahkExe || !folderPath || !fs.existsSync(RUTA_FINALIZE_TRADE_CARD_SCRIPT)) {
         return callback(false, 'faltan_archivos');
     }
-    spawnAhkConProteccion(ahkExe, [RUTA_FINALIZE_TRADE_CARD_SCRIPT, winTitle, folderPath, String(instanceIndex)], { windowsHide: false }, 3 * 60 * 1000, callback);
+    const outputFile = path.join(os.tmpdir(), `ftrade_finalize_${winTitle}_${Date.now()}.txt`);
+    spawnAhkConProteccion(ahkExe, [RUTA_FINALIZE_TRADE_CARD_SCRIPT, winTitle, folderPath, outputFile], { windowsHide: false }, 3 * 60 * 1000, (ok, detalle) => {
+        try { if (fs.existsSync(outputFile)) fs.unlinkSync(outputFile); } catch (e) {}
+        if (ok) apagarInstanciaMuMu(instanceIndex);
+        callback(ok, detalle, outputFile);
+    });
 }
 
 const RUTA_WAIT_WELCOME_SCREENS_SCRIPT = path.join(__dirname, 'automation', '_WaitWelcomeScreens.ahk');
@@ -4930,7 +5037,7 @@ dashboardApp.get('/account/:token', async (req, res) => {
               <button type="button" class="dropdown-toggle" id="toggle-trade-mode"><span class="dropdown-toggle-texto">Main Trade</span><span class="caret">▾</span></button>
               <div class="dropdown-panel" id="panel-trade-mode">
                 <div class="dropdown-opcion activo" data-valor="main"><span class="dropdown-opcion-texto">Main Trade</span></div>
-                <div class="dropdown-opcion dropdown-opcion-disabled" data-valor="friend" title="Not available yet"><span class="dropdown-opcion-texto">Friend Trade</span></div>
+                <div class="dropdown-opcion" data-valor="friend"><span class="dropdown-opcion-texto">Friend Trade</span></div>
                 <div class="dropdown-opcion dropdown-opcion-disabled" data-valor="aggressive" title="Not available yet"><span class="dropdown-opcion-texto">Aggressive Trade</span></div>
                 <div class="dropdown-opcion dropdown-opcion-disabled" data-valor="goldcard" title="Not available yet"><span class="dropdown-opcion-texto">Gold Card Trade</span></div>
               </div>
@@ -8673,7 +8780,18 @@ client.on('interactionCreate', async interaction => {
                 description: i.is_android_started ? 'On' : 'Off',
                 value: `${i.index}::${i.name}`
             })));
-        return await interaction.editReply({ content: `Which instance do you want to inject \`${fileName}\` into?`, components: [new ActionRowBuilder().addComponents(menu)] });
+        // Boton Cancel (2026-08-22, a pedido explicito del usuario): elegir la instancia acá
+        // dispara la inyeccion real de una -- antes, si te equivocabas de instancia, la unica
+        // salida era dejar que corriera y despues usar "Stop" (mata y limpia todo, mas
+        // brusco). Esto deja cancelar ANTES de comprometerse a nada.
+        const filaCancelar = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('card_trade_cancelar').setLabel('⬅️ Cancel').setStyle(ButtonStyle.Secondary)
+        );
+        return await interaction.editReply({ content: `Which instance do you want to inject \`${fileName}\` into?`, components: [new ActionRowBuilder().addComponents(menu), filaCancelar] });
+    }
+
+    if (interaction.isButton() && interaction.customId === 'card_trade_cancelar') {
+        return await interaction.update({ content: '❌ Cancelled -- nothing was injected.', components: [] });
     }
 
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('card_shinedust_cuenta::')) {
@@ -9729,16 +9847,53 @@ client.on('interactionCreate', async interaction => {
         if (interaction.customId.startsWith('mumu_nexttrade_')) {
             const [index, nombre] = interaction.customId.replace('mumu_nexttrade_', '').split('::');
             await interaction.deferReply({ ephemeral: true });
-            await interaction.editReply({ content: `🔄 Offering the wishlist card to your friend on instance **${nombre}**...` });
+            await interaction.editReply({ content: `🔄 Closing dialogs and heading to Social Hub on instance **${nombre}**...` });
 
-            ejecutarSendTradeCard(nombre, async (ok, detalle) => {
+            const filaFinalize = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`mumu_finalizetrade_${index}::${nombre}`).setLabel('🔄 Finalize Trade').setStyle(ButtonStyle.Success)
+            );
+
+            // Paso previo (2026-08-23, a pedido explicito del usuario): navega desde "Search
+            // Results" hasta Social Hub, separado del chequeo en si (_FriendTradeGoToSocialHub.ahk).
+            const idaSocialHub = await ejecutarFriendTradeGoToSocialHub(nombre);
+            if (!idaSocialHub.ok) {
+                return await interaction.followUp({ content: `❌ Could not navigate to Social Hub on instance **${nombre}** (${idaSocialHub.resultado}).`, ephemeral: true });
+            }
+            await interaction.followUp({ content: `🔄 Checking for a pending offer on instance **${nombre}**...`, ephemeral: true });
+
+            // Chequeo de oferta pendiente primero (2026-08-22, mismo patron que Main Trade):
+            // si ya hay una oferta real esperando (recuperacion de un intento anterior que
+            // llego hasta ahi, o el amigo ofrecio primero), se saltea la oferta propia y se
+            // responde a la de ellos en su lugar (_FriendTradeAcceptOffer.ahk).
+            const chequeo = await ejecutarFriendTradeCheckPendingOffer(nombre);
+            if (chequeo.ok) {
+                await interaction.followUp({ content: `🔄 Found a pending offer on instance **${nombre}** -- opening it and offering a card in response...`, ephemeral: true });
+                ejecutarFriendTradeAcceptOffer(nombre, async (ok, detalle, outputFile) => {
+                    try {
+                        if (!ok) {
+                            return await interaction.followUp({ content: `❌ Could not respond to the pending offer (${detalle}). Check the instance manually.`, ephemeral: true });
+                        }
+                        const rutaFoto = outputFile.replace(/\.txt$/, '_MainOfferPhoto.png');
+                        await mandarFotoFriendTradeAlCanal(interaction.user.id, rutaFoto, `<@${interaction.user.id}> Responded to the offer on instance **${nombre}**.`);
+                        await interaction.followUp({
+                            content: `✅ Responded to the offer on instance **${nombre}**.\n\nOnce your friend confirms, press **🔄 Finalize Trade**.`,
+                            components: [filaFinalize],
+                            ephemeral: true
+                        });
+                    } catch (e) {}
+                });
+                return;
+            }
+
+            await interaction.followUp({ content: `🔄 No pending offer found -- offering the wishlist card to your friend on instance **${nombre}**...`, ephemeral: true });
+
+            ejecutarSendTradeCard(nombre, async (ok, detalle, outputFile) => {
                 try {
                     if (!ok) {
                         return await interaction.followUp({ content: `❌ Could not offer the card (${detalle}). Check that your friend has already accepted and is available in "Select a Friend".`, ephemeral: true });
                     }
-                    const filaFinalize = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId(`mumu_finalizetrade_${index}::${nombre}`).setLabel('🔄 Finalize Trade').setStyle(ButtonStyle.Success)
-                    );
+                    const rutaFoto = outputFile.replace(/\.txt$/, '_OfferPhoto.png');
+                    await mandarFotoFriendTradeAlCanal(interaction.user.id, rutaFoto, `<@${interaction.user.id}> Card offered on instance **${nombre}**.`);
                     await interaction.followUp({
                         content: `✅ Card offered on instance **${nombre}**, waiting for your partner's response.\n\nOnce your friend has offered their card, press **🔄 Finalize Trade**.`,
                         components: [filaFinalize],
@@ -9754,8 +9909,16 @@ client.on('interactionCreate', async interaction => {
             await interaction.deferReply({ ephemeral: true });
             await interaction.editReply({ content: `🔄 Finalizing the trade on instance **${nombre}**... the instance will shut down when done.` });
 
-            ejecutarFinalizeTradeCard(nombre, index, async (ok, detalle) => {
+            ejecutarFinalizeTradeCard(nombre, index, async (ok, detalle, outputFile) => {
                 try {
+                    if (ok) {
+                        // 3 fotos (2026-08-23, "igualito que Main Trade"): _FriendTradeFinalize.ahk
+                        // (copia de _DonorRespondAndFinalize.ahk) guarda las 3 mismas etapas de
+                        // evidencia -- antes del swipe (2), y despues del swipe (1, "Got it!").
+                        await mandarFotoFriendTradeAlCanal(interaction.user.id, outputFile.replace(/\.txt$/, '_TradePhoto.png'), `<@${interaction.user.id}> Trade in progress on instance **${nombre}**!`);
+                        await mandarFotoFriendTradeAlCanal(interaction.user.id, outputFile.replace(/\.txt$/, '_SwipePhoto.png'), `Card sent on instance **${nombre}**.`);
+                        await mandarFotoFriendTradeAlCanal(interaction.user.id, outputFile.replace(/\.txt$/, '_SentPhoto.png'), `Swipe registered — card actually sent.`);
+                    }
                     await interaction.followUp({
                         content: ok
                             ? `✅ Trade finalized on instance **${nombre}**. The instance is shutting down.`
@@ -9797,10 +9960,11 @@ client.on('interactionCreate', async interaction => {
             const fila = new ActionRowBuilder().addComponents(
                 // Reactivado 2026-08-22 a pedido explicito del usuario (estaba deshabilitado
                 // desde el 2026-08-06 por bugs conocidos, ya resueltos).
-                // Deshabilitado (2026-08-22): todavia se esta construyendo el auto-poll, no
-                // listo para usuarios todavia (activo sin comitear en la sesion de desarrollo
-                // en vivo mientras se prueba).
-                new ButtonBuilder().setCustomId(`card_trade_friend::${cartaId}`).setLabel('🤝 Friend Trade').setStyle(ButtonStyle.Secondary).setDisabled(true),
+                // Reactivado 2026-08-23 a pedido explicito del usuario -- Offer y Respond ya
+                // probados en vivo con exito de punta a punta; Finalize todavia sin probar en
+                // vivo (needle-verificado, copiado de _DonorRespondAndFinalize.ahk de Main
+                // Trade, pero nunca corrido de verdad en un trade real de Friend Trade).
+                new ButtonBuilder().setCustomId(`card_trade_friend::${cartaId}`).setLabel('🤝 Friend Trade').setStyle(ButtonStyle.Primary),
                 new ButtonBuilder().setCustomId(`card_trade_main::${cartaId}`).setLabel('🏠 Main Trade').setStyle(ButtonStyle.Primary),
                 // Deshabilitado a pedido explicito del usuario 2026-07-29: todavia no
                 // esta implementado, se libera en un release futuro.

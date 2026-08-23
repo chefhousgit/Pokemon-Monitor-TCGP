@@ -6,7 +6,7 @@ const axios = require('axios');
 // esto lo convierte en automático: bot.js y s4t.js llaman iniciarAutoSyncCardTypes()
 // una vez al arrancar, y de ahí en más se refresca solo cada INTERVALO_MS sin
 // que nadie tenga que correr el script a mano cuando sale una expansión nueva.
-const URL_CARTAS = 'https://raw.githubusercontent.com/chase-mew/pokemon-tcg-pocket-cards/refs/heads/main/v4.json';
+const URL_CARTAS = 'https://raw.githubusercontent.com/chase-mew/pokemon-tcg-pocket-cards/refs/heads/main/data/v4/cards.min.json';
 const DESTINO = path.join(__dirname, 'assets', 'card_types.json');
 const INTERVALO_MS = 12 * 60 * 60 * 1000; // cada 12 horas alcanza — no es algo que cambie seguido
 

@@ -203,8 +203,27 @@ function iniciarProceso(def) {
 
 async function iniciarActualizacion() {
     if (cerrando) return;
+
+    // Bug real reportado 2026-08-23 (wR98): version.json ya se sobreescribe con la version
+    // nueva en el momento de la descarga (update-checker.js, antes de que el swap del .exe
+    // siquiera se intente) -- antes ESTA funcion borraba .pending_update.json de entrada, sin
+    // saber todavia si el "move" del .bat mas abajo iba a funcionar. Si el .exe viejo quedaba
+    // trabado (antivirus escaneandolo) mas de los 30 reintentos (~1 min), el swap fallaba en
+    // silencio, el flag ya no existia para reintentar, y el usuario quedaba PARA SIEMPRE
+    // corriendo el .exe viejo mientras version.json (y el Panel) mostraban la version nueva --
+    // "restart", "kill everything" y "quit" no arreglaban nada porque no habia nada pendiente
+    // que reintentar. Ahora el borrado de .pending_update.json pasa a depender del resultado
+    // real del swap (lo hace el propio .bat, recien despues del "move"), y se cuentan los
+    // intentos fallidos (intentosSwap, guardado en el mismo .pending_update.json) para
+    // reintentar solo en el proximo arranque -- hasta 3 veces -- antes de rendirse y avisar
+    // con un popup real (antes solo quedaba un update_fallo.txt que nadie revisaba nunca).
+    let pendiente = {};
+    try { pendiente = JSON.parse(fs.readFileSync(PENDING_UPDATE_PATH, 'utf8')); } catch (e) {}
+    const intentosPrevios = Number(pendiente.intentosSwap) || 0;
+    const esUltimoIntento = intentosPrevios >= 2;
+
     cerrando = true;
-    logLinea('🔄 Update ready — replacing the program...');
+    logLinea(`🔄 Update ready — replacing the program... (attempt ${intentosPrevios + 1}/3)`);
 
     await Promise.all(PROCESOS.map((def) => new Promise((resolve) => {
         if (!def.instancia || def.instancia.killed || def.instancia.exitCode !== null) return resolve();
@@ -212,18 +231,28 @@ async function iniciarActualizacion() {
         def.instancia.kill();
     })));
 
-    try { fs.unlinkSync(PENDING_UPDATE_PATH); } catch (e) {}
-
     if (!esSea) {
+        try { fs.unlinkSync(PENDING_UPDATE_PATH); } catch (e) {}
         logLinea('⚠️ Auto-update only applies to the packaged .exe — skipped in development mode.');
         process.exit(0);
         return;
     }
 
+    // Se guarda el intento incrementado ANTES de correr el .bat (no despues): si el proceso
+    // se corta a mitad de camino (apagon, crash), el proximo arranque igual cuenta este
+    // intento como gastado en vez de repetirlo infinitamente.
+    try {
+        fs.writeFileSync(PENDING_UPDATE_PATH, JSON.stringify({ ...pendiente, intentosSwap: intentosPrevios + 1 }));
+    } catch (e) {}
+
     const rutaExe = process.execPath;
     const rutaNueva = path.join(__dirname, 'MonitorPokemon.new.exe');
     const rutaBat = path.join(__dirname, '_update.bat');
     const rutaFalloUpdate = path.join(__dirname, 'update_fallo.txt');
+    const rutaPendiente = PENDING_UPDATE_PATH;
+    const mensajePopup = esUltimoIntento
+        ? 'Monitor Pokemon could not finish updating automatically after 3 tries (the old .exe stayed locked, likely antivirus). Please download the latest version by hand from https://github.com/AleCast09/Pokemon-Monitor-TCGP/releases/latest and replace MonitorPokemon.exe with it.'
+        : '';
     // Nota: "timeout" de Windows depende de tener una consola/stdin real y falla
     // (o se saltea) cuando corre sin ventana, como en nuestro caso — por eso las
     // esperas usan "ping" a localhost, el truco clásico que funciona sin consola.
@@ -231,8 +260,12 @@ async function iniciarActualizacion() {
     // Reintento con limite (2026-08-06, bug real reportado por un usuario): si
     // el .exe viejo queda bloqueado (antivirus escaneandolo, o tarda en soltar
     // el handle), antes reintentaba "del" cada 2s PARA SIEMPRE -- ahora corta a
-    // los 30 intentos (~1 minuto) y deja un aviso en update_fallo.txt en vez de
-    // quedar en un loop infinito sin ningun indicio de que algo esta mal.
+    // los 30 intentos (~1 minuto) por corrida y deja un aviso en update_fallo.txt.
+    //
+    // .pending_update.json (2026-08-23): solo se borra en el ":ok" (swap realmente
+    // confirmado) o en el ":fallo" del 3er intento (esUltimoIntento) -- si falla antes
+    // de eso, queda con intentosSwap ya incrementado para que el proximo arranque
+    // reintente solo, sin que el usuario tenga que hacer nada.
     const contenidoBat = [
         '@echo off',
         'ping 127.0.0.1 -n 4 >nul',
@@ -246,6 +279,8 @@ async function iniciarActualizacion() {
         '  goto retry',
         ')',
         `move /y "${rutaNueva}" "${rutaExe}"`,
+        `del "${rutaPendiente}" 2>nul`,
+        `del "${rutaFalloUpdate}" 2>nul`,
         // "start" abre una consola visible por defecto — a diferencia de "Start
         // Monitor Pokemon.bat", que sí lo lanza oculto. Mismo patrón acá para
         // que el relanzamiento tras actualizar quede igual de invisible.
@@ -253,7 +288,11 @@ async function iniciarActualizacion() {
         'del "%~f0"',
         'exit',
         ':fallo',
-        `echo Could not replace MonitorPokemon.exe - the old file stayed locked for over a minute (likely antivirus). Close any antivirus scan on this folder and try Update Now again, or replace the .exe by hand with MonitorPokemon.new.exe. > "${rutaFalloUpdate}"`,
+        `echo Could not replace MonitorPokemon.exe - the old file stayed locked for over a minute (likely antivirus). Attempt ${intentosPrevios + 1}/3. > "${rutaFalloUpdate}"`,
+        ...(esUltimoIntento ? [
+            `del "${rutaPendiente}" 2>nul`,
+            `powershell -NoProfile -STA -WindowStyle Hidden -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('${mensajePopup.replace(/'/g, "''")}', 'Monitor Pokemon - Update Failed')"`
+        ] : []),
         `powershell -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath '${rutaExe.replace(/'/g, "''")}' -WorkingDirectory '${__dirname.replace(/'/g, "''")}' -WindowStyle Hidden"`,
         'del "%~f0"',
         ''

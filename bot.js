@@ -24,7 +24,7 @@ const db = require('./database.js');
 
 const heartbeatScript = require('./heartbeat.js');
 const configScript = require('./config.js');
-const { chequearActualizaciones, avisarActualizacionAplicadaSiHaceFalta, avisarActualizacionFallidaSiHaceFalta, obtenerVersionLocal, obtenerVersionRemota, esVersionMasNueva, descargarActualizacion, describirError, notasParaEmbed, obtenerDestinoNotificacion } = require('./update-checker.js');
+const { UPDATE_CHECK_ENABLED, MENSAJE_UPDATE_MANUAL, chequearActualizaciones, avisarActualizacionAplicadaSiHaceFalta, avisarActualizacionFallidaSiHaceFalta, obtenerVersionLocal, obtenerVersionRemota, esVersionMasNueva, descargarActualizacion, describirError, notasParaEmbed, obtenerDestinoNotificacion } = require('./update-checker.js');
 const { obtenerMapaEmojisGuild, FUENTES_EMOJIS, obtenerErroresEmojisGuild } = require('./guild-emojis.js');
 const { iniciarAutoSyncCardTypes } = require('./card-types-sync.js');
 iniciarAutoSyncCardTypes();
@@ -10144,6 +10144,9 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.customId === 'actualizacion_ahora') {
+            if (!UPDATE_CHECK_ENABLED) {
+                return await interaction.update({ content: MENSAJE_UPDATE_MANUAL, embeds: [], components: [] });
+            }
             await interaction.update({ content: '⏳ Downloading the update...', embeds: [], components: [] });
             try {
                 const remota = await obtenerVersionRemota();
@@ -10293,6 +10296,9 @@ client.on('interactionCreate', async interaction => {
 
             case 'btn_check_updates':
                 await interaction.deferReply({ ephemeral: true });
+                if (!UPDATE_CHECK_ENABLED) {
+                    return await interaction.editReply({ content: MENSAJE_UPDATE_MANUAL });
+                }
                 try {
                     const localVer = obtenerVersionLocal();
                     const remotaVer = await obtenerVersionRemota();

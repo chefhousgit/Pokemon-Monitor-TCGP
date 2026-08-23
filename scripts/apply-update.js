@@ -6,7 +6,7 @@
 // en launcher.js).
 const fs = require('fs');
 const path = require('path');
-const { obtenerVersionLocal, obtenerVersionRemota, esVersionMasNueva, descargarActualizacion, PENDING_UPDATE_PATH } = require('../update-checker.js');
+const { UPDATE_CHECK_ENABLED, MENSAJE_UPDATE_MANUAL, obtenerVersionLocal, obtenerVersionRemota, esVersionMasNueva, descargarActualizacion, PENDING_UPDATE_PATH } = require('../update-checker.js');
 
 async function main() {
     // Si ya hay una actualizacion descargada y esperando (ya sea porque se
@@ -20,6 +20,10 @@ async function main() {
         // del lado de ControlPanel.cs nunca llega ninguna linea de progreso.
         process.stdout.write('PROGRESS:100\n');
         process.stdout.write(JSON.stringify({ ok: true, yaEstaba: true }) + '\n');
+        return;
+    }
+    if (!UPDATE_CHECK_ENABLED) {
+        process.stdout.write(JSON.stringify({ ok: false, error: MENSAJE_UPDATE_MANUAL }) + '\n');
         return;
     }
     try {

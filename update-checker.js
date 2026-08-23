@@ -21,6 +21,19 @@ const ASSETS_ZIP_TEMP_PATH = path.join(__dirname, 'assets-actualizacion.zip');
 // part of the update path reaches upstream any more.
 const UPDATE_REPO = (process.env.UPDATE_REPO || 'chefhousgit/Pokemon-Monitor-TCGP').trim();
 const UPDATE_BRANCH = (process.env.UPDATE_BRANCH || 'main').trim();
+
+// In-app updating is OFF by default, because the mirror above is a PRIVATE repo:
+// raw.githubusercontent.com, the api.github.com fallback and the release-asset URLs all
+// return 404 to an unauthenticated client, so every update path would fail anyway — just
+// noisily, with dead buttons and an error toast instead of a clear explanation.
+//
+// Updating is manual now: git pull, then `npm run build:exe`. See RELEASING.md.
+// Set UPDATE_CHECK_ENABLED=true only if the repo is public, or if you have added an
+// authenticated fetch for the private case.
+const UPDATE_CHECK_ENABLED = /^(true|1|yes)$/i.test(process.env.UPDATE_CHECK_ENABLED || '');
+const MENSAJE_UPDATE_MANUAL =
+    'ℹ️ In-app updates are disabled — this build tracks a private repo. ' +
+    'To update: `git pull` then `npm run build:exe`, and restart from the Control Panel.';
 const VERSION_URL_REMOTA = `https://raw.githubusercontent.com/${UPDATE_REPO}/${UPDATE_BRANCH}/version.json`;
 // Respaldo por si raw.githubusercontent.com esta bloqueado por el ISP del
 // usuario (reporte real 2026-07-30: varios usuarios, no solo uno, con
@@ -163,6 +176,9 @@ async function obtenerDestinoNotificacion(client) {
 }
 
 async function chequearActualizaciones(client) {
+    // Disabled by default -- see UPDATE_CHECK_ENABLED. Returning early keeps the periodic
+    // background check from firing a request every few hours that can only ever 404.
+    if (!UPDATE_CHECK_ENABLED) return;
     try {
         const local = obtenerVersionLocal();
         const remota = await obtenerVersionRemota();
@@ -427,6 +443,8 @@ async function descargarActualizacion(remota) {
 }
 
 module.exports = {
+    UPDATE_CHECK_ENABLED,
+    MENSAJE_UPDATE_MANUAL,
     chequearActualizaciones,
     avisarActualizacionAplicadaSiHaceFalta,
     avisarActualizacionFallidaSiHaceFalta,

@@ -61,3 +61,7 @@ bin/
 
 # keep the documented template tracked (it holds no secrets)
 !.env.example
+
+# build outputs copied to the repo root for gh release upload
+MonitorPokemon.exe
+MonitorPokemonPanel.exe

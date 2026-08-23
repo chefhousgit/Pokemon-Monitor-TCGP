@@ -85,6 +85,11 @@ function repoActualizacion() {
 }
 
 async function chequearVersionRemota(versionLocal) {
+    // Matches UPDATE_CHECK_ENABLED in update-checker.js. Off => the Control Panel never
+    // shows an "update available" badge, instead of showing one driven by a 404.
+    const env = leerEnv();
+    const habilitado = /^(true|1|yes)$/i.test(env.UPDATE_CHECK_ENABLED || process.env.UPDATE_CHECK_ENABLED || '');
+    if (!habilitado) return null;
     try {
         const { repo, rama } = repoActualizacion();
         const resp = await axios.get(`https://raw.githubusercontent.com/${repo}/${rama}/version.json`, { timeout: 5000 });

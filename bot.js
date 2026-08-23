@@ -9936,7 +9936,7 @@ client.on('interactionCreate', async interaction => {
                 // probados en vivo con exito de punta a punta; Finalize todavia sin probar en
                 // vivo (needle-verificado, copiado de _DonorRespondAndFinalize.ahk de Main
                 // Trade, pero nunca corrido de verdad en un trade real de Friend Trade).
-                new ButtonBuilder().setCustomId(`card_trade_friend::${cartaId}`).setLabel('🤝 Friend Trade').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId(`card_trade_friend::${cartaId}`).setLabel('🤝 Friend Trade').setStyle(ButtonStyle.Primary),
                 new ButtonBuilder().setCustomId(`card_trade_main::${cartaId}`).setLabel('🏠 Main Trade').setStyle(ButtonStyle.Primary),
                 // Deshabilitado a pedido explicito del usuario 2026-07-29: todavia no
                 // esta implementado, se libera en un release futuro.

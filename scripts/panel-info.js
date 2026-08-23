@@ -70,9 +70,24 @@ function esVersionMasNueva(remota, local) {
     return false;
 }
 
+// Second copy of the version check (the Control Panel's "update available" badge runs
+// as its own short-lived process, without loading update-checker.js). It pointed at the
+// original author's repo too, so repointing update-checker.js alone would have left the
+// panel still polling him. Same UPDATE_REPO/UPDATE_BRANCH keys as update-checker.js —
+// read through leerEnv() because this script never loads dotenv, so process.env alone
+// would silently ignore whatever is in the .env file.
+function repoActualizacion() {
+    const env = leerEnv();
+    return {
+        repo: (env.UPDATE_REPO || process.env.UPDATE_REPO || 'chefhousgit/Pokemon-Monitor-TCGP').trim(),
+        rama: (env.UPDATE_BRANCH || process.env.UPDATE_BRANCH || 'main').trim()
+    };
+}
+
 async function chequearVersionRemota(versionLocal) {
     try {
-        const resp = await axios.get('https://raw.githubusercontent.com/AleCast09/Pokemon-Monitor-TCGP/main/version.json', { timeout: 5000 });
+        const { repo, rama } = repoActualizacion();
+        const resp = await axios.get(`https://raw.githubusercontent.com/${repo}/${rama}/version.json`, { timeout: 5000 });
         if (esVersionMasNueva(resp.data.version, versionLocal)) return resp.data.version;
         return null;
     } catch (e) {

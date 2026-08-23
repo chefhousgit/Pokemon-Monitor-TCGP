@@ -58,3 +58,6 @@ MonitorPokemonPanel.exe
 # lo copia igual al paquete distribuido (dist/bin), asi el tunel funciona
 # para todos, no solo en esta PC.
 bin/
+
+# keep the documented template tracked (it holds no secrets)
+!.env.example

@@ -21,6 +21,24 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("Monitor Pokemon")]
 [assembly: AssemblyProduct("Monitor Pokemon")]
 
+// Where the panel fetches version.json and the release binaries from. Upstream these
+// four URLs were hardcoded to the original author's repo, so "Repair Files" and the
+// panel's own update badge kept downloading and running his .exe even after the Node
+// side had been repointed. Single source of truth now.
+public static class RepoActualizacion {
+    public const string Slug = "chefhousgit/Pokemon-Monitor-TCGP";
+    public const string Rama = "main";
+    public static string UrlVersionJson {
+        get { return "https://raw.githubusercontent.com/" + Slug + "/" + Rama + "/version.json"; }
+    }
+    public static string UrlReleaseLatest {
+        get { return "https://github.com/" + Slug + "/releases/latest"; }
+    }
+    public static string UrlAsset(string nombreArchivo) {
+        return "https://github.com/" + Slug + "/releases/latest/download/" + nombreArchivo;
+    }
+}
+
 public class InfoDiscord {
     public string version;
     public bool tokenPresente;
@@ -405,12 +423,12 @@ public class ControlPanelForm : Form {
                 client.DownloadProgressChanged += (s, e) => actualizarProgreso(
                     (int)(e.ProgressPercentage * 0.10), "Downloading assets... " + e.ProgressPercentage + "%");
                 actualizarProgreso(1, "Downloading assets...");
-                await client.DownloadFileTaskAsync("https://github.com/AleCast09/Pokemon-Monitor-TCGP/releases/latest/download/MonitorPokemon-assets.zip", tempAssets);
+                await client.DownloadFileTaskAsync(RepoActualizacion.UrlAsset("MonitorPokemon-assets.zip"), tempAssets);
             }
             using (var client = new System.Net.WebClient()) {
                 client.DownloadProgressChanged += (s, e) => actualizarProgreso(
                     10 + (int)(e.ProgressPercentage * 0.90), "Downloading Monitor Pokemon... " + e.ProgressPercentage + "%");
-                await client.DownloadFileTaskAsync("https://github.com/AleCast09/Pokemon-Monitor-TCGP/releases/latest/download/MonitorPokemon.exe", tempExe);
+                await client.DownloadFileTaskAsync(RepoActualizacion.UrlAsset("MonitorPokemon.exe"), tempExe);
             }
             actualizarProgreso(100, "Installing...");
 
@@ -462,7 +480,7 @@ public class ControlPanelForm : Form {
             // verdad (el propio chequeo de "hay actualizacion" del bot se hubiera confundido
             // creyendo que seguia desactualizado).
             using (var client = new System.Net.WebClient()) {
-                var jsonRemoto = client.DownloadString("https://raw.githubusercontent.com/AleCast09/Pokemon-Monitor-TCGP/main/version.json");
+                var jsonRemoto = client.DownloadString(RepoActualizacion.UrlVersionJson);
                 File.WriteAllText(Path.Combine(raiz, "version.json"), jsonRemoto);
             }
         } catch (Exception ex) {
@@ -582,7 +600,7 @@ public class ControlPanelForm : Form {
     // no depende del programa para nada, abre la pagina del release en el navegador de verdad
     // del usuario -- si su navegador SI puede bajar el zip (como le paso a el), esto lo
     // desbloquea aunque la descarga interna del programa nunca funcione en su red.
-    const string URL_RELEASES = "https://github.com/AleCast09/Pokemon-Monitor-TCGP/releases/latest";
+    static readonly string URL_RELEASES = RepoActualizacion.UrlReleaseLatest;
 
     void MostrarAvisoActualizacion(string versionActual, string versionNueva, string discordChannelUrl) {
         var dialogo = new Form {

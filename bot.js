@@ -67,14 +67,20 @@ const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
 });
 
-// Webhook fijo del canal de feedback del dueño — todos los usuarios que
-// corren su propia copia del bot mandan sus sugerencias/reportes acá, para
-// tener todo centralizado en un solo lugar en vez de revisar servidor por
-// servidor. Guardado en base64 (no en texto plano) para que no aparezca con
-// una búsqueda de texto directa sobre el .exe/bundle.js — no es seguridad
-// real (se puede decodificar), pero sube la barrera de "grep casual".
-const FEEDBACK_WEBHOOK_B64 = 'aHR0cHM6Ly9kaXNjb3JkLmNvbS9hcGkvd2ViaG9va3MvMTUyODU3ODYwMDM4MTU4MzQ2My9sZllQS2dTWUQtWTc2NThHLU1aUTNwZmxVTVZ1Vmo3SjVvVm5mQzZyMzNCbm5FaEVBcWctYkFOQkhibjFmTzRyVm1TTA==';
-const FEEDBACK_WEBHOOK_URL = Buffer.from(FEEDBACK_WEBHOOK_B64, 'base64').toString('utf8');
+// Feedback destination. UPSTREAM BEHAVIOUR (removed on purpose): this used to be a
+// hardcoded webhook pointing at the original author's private Discord channel, stored
+// base64-encoded so it would not turn up in a plain-text search of the .exe/bundle.js.
+// Every /feedback submission from every copy of the bot was delivered to him along with
+// the sender's Discord tag + user ID and their server name + guild ID.
+//
+// It is now read from the FEEDBACK_WEBHOOK_URL environment variable (.env), so reports
+// go to a channel you own. If it is left unset the feedback feature simply reports that
+// it is not configured and sends nothing anywhere — no silent fallback destination.
+const FEEDBACK_WEBHOOK_URL = (process.env.FEEDBACK_WEBHOOK_URL || '').trim();
+const FEEDBACK_HABILITADO = /^https:\/\/discord\.com\/api\/webhooks\//.test(FEEDBACK_WEBHOOK_URL);
+if (!FEEDBACK_HABILITADO && FEEDBACK_WEBHOOK_URL) {
+    console.warn('⚠️ FEEDBACK_WEBHOOK_URL is set but is not a valid Discord webhook URL — the feedback feature stays disabled.');
+}
 const FEEDBACK_COOLDOWN_MS = 5 * 60 * 1000;
 
 // Discord no permite adjuntar archivos dentro de un modal — el adjunto se
@@ -3751,8 +3757,8 @@ async function ejecutarMainTradeDesdeDiscord(interaction, { cartaId, friendId, f
             if (canalCollage?.webhook_url) {
                 const embedCollage = new EmbedBuilder()
                     .setColor(0xE91E63)
-                    .setTitle('✅ Main Trade completado')
-                    .setDescription(`Intercambio confirmado. ¡Muchas gracias por el intercambio!\n\n**${nombreCarta}**`)
+                    .setTitle('✅ Main Trade completed')
+                    .setDescription(`Trade confirmed. Thanks a lot for the trade!\n\n**${nombreCarta}**`)
                     .setImage('attachment://main_trade_resumen.png');
                 const formCollage = new FormData();
                 formCollage.append('payload_json', JSON.stringify({ embeds: [embedCollage.toJSON()] }));
@@ -4956,7 +4962,7 @@ dashboardApp.get('/account/:token', async (req, res) => {
   </div>
 </div>
 <main>
-<div class="sub">File: ${escaparHtml(accountData.metadata?.fileName || '')} — el link de esta pagina es privado, pero si lo compartís cualquiera con el enlace puede verlo. Para pasarle esto a alguien, mejor descargá el PDF y mandale el archivo.</div>
+<div class="sub">File: ${escaparHtml(accountData.metadata?.fileName || '')} — this page's link is private, but anyone you share it with can open it. To pass this on to someone, download the PDF and send them the file instead.</div>
 ${datosInventario ? `<div class="sub lista-inventario">
     ${camposInventarioEmbed(datosInventario, mapaEmojisAccountPage).map(c => `<div>${emojiDiscordAImg(c.name)}: <strong>${escaparHtml(c.value)}</strong></div>`).join('\n    ')}
 </div>` : ''}
@@ -6051,6 +6057,9 @@ const _feedbackWebUltimoEnvio = new Map();
 // 100kb, insuficiente para una captura en base64 (~1.37x el tamaño real del archivo).
 dashboardApp.post('/tutorials/feedback', express.json({ limit: '12mb' }), async (req, res) => {
     try {
+        if (!FEEDBACK_HABILITADO) {
+            return res.status(503).json({ ok: false, error: 'Feedback is not configured. Set FEEDBACK_WEBHOOK_URL in your .env to your own Discord webhook.' });
+        }
         const titulo = String(req.body?.titulo || '').trim().slice(0, 80);
         const texto = String(req.body?.texto || '').trim().slice(0, 1500);
         if (!titulo || !texto) return res.status(400).json({ ok: false, error: 'Title and message are required.' });
@@ -6157,7 +6166,21 @@ function matarCloudflaredPrevios(rutaCloudflared) {
 }
 
 let DASHBOARD_PUBLIC_URL = null;
+
+// Opt-in (changed from upstream, where the tunnel started automatically on every boot).
+// When enabled this downloads cloudflared.exe and publishes the local Info Accounts
+// dashboard on a public https://<random>.trycloudflare.com address that anyone on the
+// internet can reach. Account pages are gated behind a 96-bit random token and trades are
+// refused for any request arriving through the tunnel, but it is still your card data on a
+// public URL — so it now stays off unless you explicitly ask for it.
+// Set ENABLE_PUBLIC_TUNNEL=true in .env to turn it on.
+const TUNEL_PUBLICO_HABILITADO = /^(true|1|yes)$/i.test(process.env.ENABLE_PUBLIC_TUNNEL || '');
+
 async function iniciarTunelDashboard(puerto) {
+    if (!TUNEL_PUBLICO_HABILITADO) {
+        console.log('🔒 Public tunnel disabled — Info Accounts is reachable on localhost/LAN only. Set ENABLE_PUBLIC_TUNNEL=true in .env to publish it.');
+        return;
+    }
     const resultado = await asegurarCloudflaredBot();
     if (!resultado) {
         console.log('DEBUG: cloudflared.exe no disponible -- Info Accounts solo estara disponible en la misma red.');
@@ -8051,6 +8074,9 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (interaction.isChatInputCommand() && interaction.commandName === 'feedback') {
+        if (!FEEDBACK_HABILITADO) {
+            return await interaction.reply({ content: '⚠️ Feedback is not configured. Add `FEEDBACK_WEBHOOK_URL=<your Discord webhook>` to your `.env` and restart to enable it.', ephemeral: true });
+        }
         const rowFeedback = await obtenerCanalComando(interaction.user.id, 'cmd_feedback');
         if (rowFeedback && interaction.channelId !== rowFeedback.canal_id) {
             return await interaction.reply({ content: `❌ This command only works in <#${rowFeedback.canal_id}>.`, ephemeral: true });
@@ -8163,6 +8189,9 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.customId === 'modal_feedback') {
+            if (!FEEDBACK_HABILITADO) {
+                return await interaction.reply({ content: '⚠️ Feedback is not configured. Add `FEEDBACK_WEBHOOK_URL=<your Discord webhook>` to your `.env` and restart to enable it.', ephemeral: true });
+            }
             const filaCooldown = await db.get(`SELECT estado FROM configs_extras WHERE discord_id = ? AND tipo = 'feedback_ultimo_envio'`, [interaction.user.id]);
             const ultimoEnvio = filaCooldown ? Number(filaCooldown.estado) : 0;
             const restanteMs = FEEDBACK_COOLDOWN_MS - (Date.now() - ultimoEnvio);
@@ -8757,7 +8786,7 @@ client.on('interactionCreate', async interaction => {
         const ipLan = obtenerIpLan();
         let texto = `📋 **Info Accounts — \`${fileName}\`**\n`;
         if (DASHBOARD_PUBLIC_URL) {
-            texto += `Desde cualquier red: ${DASHBOARD_PUBLIC_URL}/account/${token}\n`;
+            texto += `From any network: ${DASHBOARD_PUBLIC_URL}/account/${token}\n`;
         } else {
             texto += `-# Tunel publico no disponible ahora mismo -- usá alguno de estos (misma red):\n`;
         }
@@ -9445,7 +9474,7 @@ client.on('interactionCreate', async interaction => {
             const ipLan = obtenerIpLan();
             let texto = `📚 **${NOMBRES_TUTORIAL_DESCARGA[tipo] || tipo} — Tutorial**\n`;
             if (DASHBOARD_PUBLIC_URL) {
-                texto += `Desde cualquier red: ${DASHBOARD_PUBLIC_URL}/tutorials?open=${tipo}\n`;
+                texto += `From any network: ${DASHBOARD_PUBLIC_URL}/tutorials?open=${tipo}\n`;
             } else {
                 texto += `-# Tunel publico no disponible ahora mismo -- usá alguno de estos (misma red):\n`;
             }

@@ -202,7 +202,7 @@
     "Fixed: the MuMu \"Turn On\" button now waits for the instance to actually finish starting before reporting its status.",
     "The trade/injection automation is now protected against stuck confirmation windows, and no longer freezes waiting for a click that never comes."
   ],
-  "downloadUrl": "https://github.com/AleCast09/Pokemon-Monitor-TCGP/releases/latest/download/MonitorPokemon.exe",
-  "panelDownloadUrl": "https://github.com/AleCast09/Pokemon-Monitor-TCGP/releases/latest/download/MonitorPokemonPanel.exe",
-  "assetsUrl": "https://github.com/AleCast09/Pokemon-Monitor-TCGP/releases/latest/download/MonitorPokemon-assets.zip"
+  "downloadUrl": "https://github.com/chefhousgit/Pokemon-Monitor-TCGP/releases/latest/download/MonitorPokemon.exe",
+  "panelDownloadUrl": "https://github.com/chefhousgit/Pokemon-Monitor-TCGP/releases/latest/download/MonitorPokemonPanel.exe",
+  "assetsUrl": "https://github.com/chefhousgit/Pokemon-Monitor-TCGP/releases/latest/download/MonitorPokemon-assets.zip"
 }

@@ -9,17 +9,55 @@ const VERSION_PATH = path.join(__dirname, 'version.json');
 const PENDING_UPDATE_PATH = path.join(__dirname, '.pending_update.json');
 const UPDATE_FALLO_PATH = path.join(__dirname, 'update_fallo.txt');
 const ASSETS_ZIP_TEMP_PATH = path.join(__dirname, 'assets-actualizacion.zip');
-const VERSION_URL_REMOTA = 'https://raw.githubusercontent.com/AleCast09/Pokemon-Monitor-TCGP/main/version.json';
+// Which repository the auto-updater trusts. Upstream this was hardcoded to the
+// original author's repo (AleCast09/Pokemon-Monitor-TCGP), which meant he could push a
+// new release at any time and every installation would fetch and execute it. It now
+// points at your own fork by default, and can be repointed with UPDATE_REPO=owner/name
+// in .env without touching code.
+//
+// Everything downstream follows from this: the updater reads version.json from this
+// repo, and version.json is what carries the downloadUrl/panelDownloadUrl/assetsUrl for
+// the binaries. Change this one value (and the URLs inside your version.json) and no
+// part of the update path reaches upstream any more.
+const UPDATE_REPO = (process.env.UPDATE_REPO || 'chefhousgit/Pokemon-Monitor-TCGP').trim();
+const UPDATE_BRANCH = (process.env.UPDATE_BRANCH || 'main').trim();
+const VERSION_URL_REMOTA = `https://raw.githubusercontent.com/${UPDATE_REPO}/${UPDATE_BRANCH}/version.json`;
 // Respaldo por si raw.githubusercontent.com esta bloqueado por el ISP del
 // usuario (reporte real 2026-07-30: varios usuarios, no solo uno, con
 // "Check for Updates" fallando siempre por Discord y solo funcionando bajando
 // el .exe a mano -- raw.githubusercontent.com tiene historial de bloqueos
 // regionales de algunos proveedores en Latinoamerica). Mismo contenido,
 // dominio distinto -- si uno esta bloqueado el otro probablemente no.
-const VERSION_URL_RESPALDO = 'https://api.github.com/repos/AleCast09/Pokemon-Monitor-TCGP/contents/version.json';
+const VERSION_URL_RESPALDO = `https://api.github.com/repos/${UPDATE_REPO}/contents/version.json?ref=${UPDATE_BRANCH}`;
 
 function obtenerVersionLocal() {
     return JSON.parse(fs.readFileSync(VERSION_PATH, 'utf8'));
+}
+
+// version.json supplies the URLs that the updater downloads and then RUNS as the new
+// .exe, so a version.json that says downloadUrl = "http://evil/x.exe" is remote code
+// execution. Upstream fetched whatever URL it was handed. Every download URL must now
+// live under the same GitHub repo the version manifest itself came from (UPDATE_REPO),
+// over https. Anything else is refused and the update aborts.
+function urlDeConfianza(url) {
+    if (!url) return false;
+    let parsed;
+    try { parsed = new URL(String(url)); } catch (e) { return false; }
+    if (parsed.protocol !== 'https:') return false;
+    if (parsed.hostname !== 'github.com' && parsed.hostname !== 'objects.githubusercontent.com') return false;
+    // github.com/<owner>/<repo>/releases/download/... — the owner/repo prefix must match.
+    if (parsed.hostname === 'github.com') {
+        return parsed.pathname.toLowerCase().startsWith(`/${UPDATE_REPO.toLowerCase()}/`);
+    }
+    // objects.githubusercontent.com is where github.com release links redirect to; it
+    // carries no repo path, so it is only ever reached via a redirect we already vetted.
+    return true;
+}
+
+function exigirUrlDeConfianza(url, queEs) {
+    if (!urlDeConfianza(url)) {
+        throw new Error(`Refusing to download the ${queEs}: ${url} is not a release asset of ${UPDATE_REPO}.`);
+    }
 }
 
 // Un AggregateError (el "Received one or more errors" generico de la carrera
@@ -252,6 +290,7 @@ async function avisarActualizacionFallidaSiHaceFalta(client) {
 async function descargarYExtraerAssets(remota) {
     if (!remota.assetsUrl) return;
     try {
+        exigirUrlDeConfianza(remota.assetsUrl, 'assets bundle');
         const respuesta = await axios.get(remota.assetsUrl, { responseType: 'stream', timeout: 120000 });
         await new Promise((resolve, reject) => {
             const archivo = fs.createWriteStream(ASSETS_ZIP_TEMP_PATH);
@@ -301,6 +340,7 @@ async function descargarYExtraerAssets(remota) {
 async function descargarActualizacionPanel(remota) {
     if (!remota.panelDownloadUrl) return;
     try {
+        exigirUrlDeConfianza(remota.panelDownloadUrl, 'control panel');
         const rutaNueva = path.join(__dirname, 'MonitorPokemonPanel.new.exe');
         const respuesta = await axios.get(remota.panelDownloadUrl, { responseType: 'stream', timeout: 60000 });
         await new Promise((resolve, reject) => {
@@ -347,6 +387,7 @@ async function avisarPasosManualesTrasDescarga(remota) {
 }
 
 async function descargarActualizacion(remota) {
+    exigirUrlDeConfianza(remota.downloadUrl, 'main executable');
     const rutaNueva = path.join(__dirname, 'MonitorPokemon.new.exe');
     const respuesta = await axios.get(remota.downloadUrl, { responseType: 'stream', timeout: 120000 });
 

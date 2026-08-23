@@ -1,8 +1,8 @@
 {
-  "version": "1.5.71",
+  "version": "1.5.72",
   "notesCount": 1,
   "notes": [
-    "Internal: continued work on Friend Trade automation (still disabled for now, not ready yet).",
+    "New: Friend Trade is enabled - fully rebuilt with real screen verification (Offer and Respond confirmed working live; Finalize hasn't been tested live yet, watch for issues there).",
     "New: Main Trade now sends a final summary collage with all 3 phases of the trade (Offer/Send/Receive, both sides) plus a thank-you message, in addition to the live step-by-step photos.",
     "Fixed a real bug: the message showing Main sending its own card displayed the wrong card's info (copied from the donor's card instead of showing no misleading data), since Main's actual card is chosen blindly and was never known.",
     "New: added confirmation photos right after each swipe (donor and Main), not just before - proof the card was actually sent, not just attempted.",

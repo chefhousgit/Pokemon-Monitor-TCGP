@@ -5031,7 +5031,7 @@ dashboardApp.get('/account/:token', async (req, res) => {
               <button type="button" class="dropdown-toggle" id="toggle-trade-mode"><span class="dropdown-toggle-texto">Main Trade</span><span class="caret">▾</span></button>
               <div class="dropdown-panel" id="panel-trade-mode">
                 <div class="dropdown-opcion activo" data-valor="main"><span class="dropdown-opcion-texto">Main Trade</span></div>
-                <div class="dropdown-opcion dropdown-opcion-disabled" data-valor="friend" title="Not available yet"><span class="dropdown-opcion-texto">Friend Trade</span></div>
+                <div class="dropdown-opcion" data-valor="friend"><span class="dropdown-opcion-texto">Friend Trade</span></div>
                 <div class="dropdown-opcion dropdown-opcion-disabled" data-valor="aggressive" title="Not available yet"><span class="dropdown-opcion-texto">Aggressive Trade</span></div>
                 <div class="dropdown-opcion dropdown-opcion-disabled" data-valor="goldcard" title="Not available yet"><span class="dropdown-opcion-texto">Gold Card Trade</span></div>
               </div>
@@ -9932,10 +9932,11 @@ client.on('interactionCreate', async interaction => {
             const fila = new ActionRowBuilder().addComponents(
                 // Reactivado 2026-08-22 a pedido explicito del usuario (estaba deshabilitado
                 // desde el 2026-08-06 por bugs conocidos, ya resueltos).
-                // Deshabilitado para release (2026-08-23): sigue en pruebas (needles nuevas
-                // recien probadas en vivo, todavia no confirmado Finalize de punta a punta).
-                // Activo sin comitear en la sesion de desarrollo en vivo mientras se prueba.
-                new ButtonBuilder().setCustomId(`card_trade_friend::${cartaId}`).setLabel('🤝 Friend Trade').setStyle(ButtonStyle.Secondary).setDisabled(true),
+                // Reactivado 2026-08-23 a pedido explicito del usuario -- Offer y Respond ya
+                // probados en vivo con exito de punta a punta; Finalize todavia sin probar en
+                // vivo (needle-verificado, copiado de _DonorRespondAndFinalize.ahk de Main
+                // Trade, pero nunca corrido de verdad en un trade real de Friend Trade).
+                new ButtonBuilder().setCustomId(`card_trade_friend::${cartaId}`).setLabel('🤝 Friend Trade').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId(`card_trade_main::${cartaId}`).setLabel('🏠 Main Trade').setStyle(ButtonStyle.Primary),
                 // Deshabilitado a pedido explicito del usuario 2026-07-29: todavia no
                 // esta implementado, se libera en un release futuro.

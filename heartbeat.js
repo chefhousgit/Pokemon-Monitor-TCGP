@@ -9,6 +9,33 @@ const path = require('path');
 const os = require('os');
 const RUTA_HEARTBEAT_THUMBNAIL = path.join(__dirname, 'assets', 'heartbeat.png');
 
+// Alerts channel. The bot's automatic notifications (webhook-down health checks,
+// frozen-instance alerts, and the "no updates webhook configured" fallbacks) used to
+// arrive only as DMs, which is easy to mute by accident and impossible to share.
+// Set ALERTS_WEBHOOK_URL in .env to route them to a channel instead; leave it unset and
+// the original DM behaviour is unchanged. Mentions the owner so it still pings.
+// User-initiated DMs (a result you asked for by pressing a button) are NOT routed here.
+const ALERTS_WEBHOOK_URL = (process.env.ALERTS_WEBHOOK_URL || '').trim();
+const ALERTS_HABILITADO = /^https:\/\/discord\.com\/api\/webhooks\//.test(ALERTS_WEBHOOK_URL);
+
+// Returns true when the alert was delivered to the channel, so each call site can skip
+// its DM path. Returns false on any failure -- the caller then falls back to the DM.
+async function enviarAlertaCanal(payload, userId) {
+    if (!ALERTS_HABILITADO) return false;
+    try {
+        const mencion = userId ? `<@${userId}>` : '';
+        const cuerpo = (typeof payload === 'string')
+            ? { content: mencion ? `${mencion} ${payload}` : payload }
+            : { ...payload, content: [mencion, payload.content].filter(Boolean).join(' ') || undefined };
+        await axios.post(`${ALERTS_WEBHOOK_URL}?wait=true`, cuerpo, { timeout: 15000 });
+        return true;
+    } catch (e) {
+        console.error('DEBUG: no se pudo mandar la alerta al canal, se intenta por DM:', e?.response?.data || e?.message || e);
+        return false;
+    }
+}
+
+
 // Mismo criterio que rutaMuMuManager() de bot.js (duplicado a proposito -- heartbeat.js corre
 // como proceso PM2 separado, sin importar nada de bot.js). Usado para el apagado/encendido
 // automatico de una instancia congelada (ver recuperarInstanciaCongelada mas abajo).
@@ -449,6 +476,8 @@ async function avisarInstanciaCongeladaSiHaceFalta(webhookUrl, instId, packs, ti
     }
 
     const destinoDm = discordUserId || DISCORD_USER_ID;
+    const textoAlerta = `${titulo} — **Instance ${instId}**, stuck at ${packs} packs for ${minutos}+ min.${canalId ? ` Check <#${canalId}>.` : ''}`;
+    if (await enviarAlertaCanal(textoAlerta, destinoDm)) return;
     if (DISCORD_TOKEN && destinoDm) {
         try {
             const headers = { Authorization: `Bot ${DISCORD_TOKEN}` };

@@ -83,6 +83,33 @@ if (!FEEDBACK_HABILITADO && FEEDBACK_WEBHOOK_URL) {
 }
 const FEEDBACK_COOLDOWN_MS = 5 * 60 * 1000;
 
+// Alerts channel. The bot's automatic notifications (webhook-down health checks,
+// frozen-instance alerts, and the "no updates webhook configured" fallbacks) used to
+// arrive only as DMs, which is easy to mute by accident and impossible to share.
+// Set ALERTS_WEBHOOK_URL in .env to route them to a channel instead; leave it unset and
+// the original DM behaviour is unchanged. Mentions the owner so it still pings.
+// User-initiated DMs (a result you asked for by pressing a button) are NOT routed here.
+const ALERTS_WEBHOOK_URL = (process.env.ALERTS_WEBHOOK_URL || '').trim();
+const ALERTS_HABILITADO = /^https:\/\/discord\.com\/api\/webhooks\//.test(ALERTS_WEBHOOK_URL);
+
+// Returns true when the alert was delivered to the channel, so each call site can skip
+// its DM path. Returns false on any failure -- the caller then falls back to the DM.
+async function enviarAlertaCanal(payload, userId) {
+    if (!ALERTS_HABILITADO) return false;
+    try {
+        const mencion = userId ? `<@${userId}>` : '';
+        const cuerpo = (typeof payload === 'string')
+            ? { content: mencion ? `${mencion} ${payload}` : payload }
+            : { ...payload, content: [mencion, payload.content].filter(Boolean).join(' ') || undefined };
+        await axios.post(`${ALERTS_WEBHOOK_URL}?wait=true`, cuerpo, { timeout: 15000 });
+        return true;
+    } catch (e) {
+        console.error('DEBUG: no se pudo mandar la alerta al canal, se intenta por DM:', e?.response?.data || e?.message || e);
+        return false;
+    }
+}
+
+
 // Discord no permite adjuntar archivos dentro de un modal — el adjunto se
 // recibe en la interacción del slash command (antes de abrir el modal) y se
 // guarda acá de paso hasta que llega el submit del modal, que es una
@@ -313,10 +340,12 @@ async function chequearWebhooksCaidos(client) {
                 // Siempre por DM, nunca al canal de Updates — a pedido explícito
                 // del usuario, ese canal es solo para avisos de actualización del
                 // bot en sí, no para chequeos de salud/errores como este.
-                try {
-                    const usuario = await client.users.fetch(discord_id);
-                    await usuario.send(mensaje);
-                } catch (e) { /* si no se puede DM (el usuario cerró los DMs del bot), se pierde este aviso puntual */ }
+                if (!(await enviarAlertaCanal(mensaje, discord_id))) {
+                    try {
+                        const usuario = await client.users.fetch(discord_id);
+                        await usuario.send(mensaje);
+                    } catch (e) { /* si no se puede DM (el usuario cerró los DMs del bot), se pierde este aviso puntual */ }
+                }
             }
 
             await db.run(
@@ -1531,7 +1560,7 @@ async function pausarDriveHdYAvisar(motivoResumen) {
         if (destino.tipo === 'webhook') {
             const contenido = destino.ownerId ? `<@${destino.ownerId}>` : undefined;
             await axios.post(`${destino.webhookUrl}?wait=true`, { embeds: [embed], content: contenido }, { timeout: 15000 });
-        } else {
+        } else if (!(await enviarAlertaCanal({ embeds: [embed] }, destino.userId))) {
             const usuario = await client.users.fetch(destino.userId);
             await usuario.send({ embeds: [embed] });
         }
@@ -10970,7 +10999,7 @@ client.once('ready', async () => {
             if (destino.tipo === 'webhook') {
                 const contenido = destino.ownerId ? `<@${destino.ownerId}>` : undefined;
                 await axios.post(`${destino.webhookUrl}?wait=true`, { content: contenido ? `${contenido} ${mensaje}` : mensaje }, { timeout: 15000 });
-            } else {
+            } else if (!(await enviarAlertaCanal(mensaje, destino.userId))) {
                 const usuario = await client.users.fetch(destino.userId);
                 await usuario.send(mensaje);
             }

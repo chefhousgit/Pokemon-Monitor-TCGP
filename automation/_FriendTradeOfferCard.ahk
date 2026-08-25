@@ -17,6 +17,13 @@ if (A_Args.Length() < 3) {
 global g_winTitle   := A_Args[1]
 global g_folderPath := A_Args[2]
 global g_outputFile := A_Args[3]
+; Modo (fork local, 2026-08-25): partido en dos fases para poder confirmar la carta desde
+; Discord antes de ofrecerla.
+;   "navigate" -> navega hasta la pantalla de elegir carta, saca la foto y sale SIN tocar
+;                 nada (la foto va a Discord con un boton Confirm).
+;   "confirm"  -> arranca YA parado en esa pantalla y hace la oferta de siempre.
+; Sin 4to argumento se comporta igual que antes, asi cualquier llamada vieja no cambia.
+global g_mode       := (A_Args.Length() >= 4) ? A_Args[4] : "full"
 
 #Include %A_ScriptDir%\_AdbUtils.ahk
 #Include %A_ScriptDir%\_OcrUtils.ahk
@@ -311,6 +318,9 @@ esperarNeedleSinAccion(nombreNeedle, variation, timeoutMs := 15000) {
 ; tolerancia a 50 tampoco alcanzaba. Recorte reemplazado por uno mas ajustado que deja solo
 ; el icono de la lupa, sin esa esquina -- verificado con diferencia 0.00 (pixel por pixel)
 ; contra 2 capturas reales tomadas en momentos distintos. Tolerancia devuelta a 30.
+; En modo "confirm" la navegacion ya la hizo la fase "navigate" y la pantalla quedo parada
+; en elegir carta -- repetir estos pasos tocaria cosas que ya no estan ahi.
+if (g_mode != "confirm") {
 if (!esperarNeedleYTap("own_donoroffer_selectfriend_trade", 30, 213, 179))
     ExitConError("no_aparecio_selectfriend_paso7")
 
@@ -318,6 +328,22 @@ if (!esperarNeedleYTap("own_donoroffer_selectfriend_trade", 30, 213, 179))
 ; segundos (ver tapSiApareceNeedlePolling) en vez de un chequeo unico -- confirmado en vivo
 ; que a veces tarda en renderizar y un chequeo de una sola vez se lo perdia.
 tapSiApareceNeedlePolling("own_donoroffer_willsend_popup", 141, 436)
+}
+
+; ---- Fin de la fase "navigate" (fork local) ----------------------------------------
+; Confirma que la pantalla de elegir carta esta arriba SIN tocarla (esperarNeedleSinAccion,
+; el mismo helper que ya se usa para fotografiar antes de tapear), saca la foto y sale.
+; El tap de abajo es la primera accion irreversible del script -- todo lo anterior es
+; navegacion, por eso el corte va exactamente aca.
+if (g_mode = "navigate") {
+    if (!esperarNeedleSinAccion("own_donoroffer_choosecard_title", 30, 15000))
+        ExitConError("no_aparecio_choosecard_en_navigate")
+    AdbScreenshot(adbPath, puerto, StrReplace(g_outputFile, ".txt", "_ConfirmPhoto.png"))
+    WriteResult("OK")
+    Gdip_Shutdown(pToken)
+    ExitApp, 0
+}
+; ------------------------------------------------------------------------------------
 
 if (!esperarNeedleYTap("own_donoroffer_choosecard_title", 30, 48, 357)) {
     ; Red de seguridad (2026-08-19, bug real reproducido en vivo): si el popup "Choose a

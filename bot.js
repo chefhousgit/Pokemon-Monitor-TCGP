@@ -3961,18 +3961,25 @@ function ejecutarFriendTradeCheckPendingOffer(winTitle) {
 // carta (construirEmbedDetalleCarta necesita un cartaId que este handler no tiene a mano) --
 // solo la foto con un mensaje, mismo criterio que ya usa Main Trade para sus propias fotos
 // de "carta elegida a ciegas" (sinDatosCarta).
-async function mandarFotoFriendTradeAlCanal(discordUserId, rutaFoto, mensajeTexto) {
-    if (!rutaFoto || !fs.existsSync(rutaFoto)) return;
+async function mandarFotoFriendTradeAlCanal(discordUserId, rutaFoto, mensajeTexto, components) {
+    if (!rutaFoto || !fs.existsSync(rutaFoto)) return false;
     try {
         const canalTradePhoto = await obtenerCanalComando(discordUserId, 'cmd_run_instance');
-        if (!canalTradePhoto?.webhook_url) return;
+        if (!canalTradePhoto?.webhook_url) return false;
         const embedFoto = new EmbedBuilder().setColor(0xE91E63).setImage('attachment://trade_photo.png');
         const formFoto = new FormData();
-        formFoto.append('payload_json', JSON.stringify({ content: mensajeTexto, embeds: [embedFoto.toJSON()] }));
+        // components (fork local): el boton Confirm viaja con la foto, en el mismo mensaje del
+        // canal de Trading -- mismo patron de webhook+components que ya usa el aviso de
+        // Run Instance mas arriba, asi que Discord lo acepta desde un webhook del propio bot.
+        const payloadFoto = { content: mensajeTexto, embeds: [embedFoto.toJSON()] };
+        if (components?.length) payloadFoto.components = components.map(c => (c.toJSON ? c.toJSON() : c));
+        formFoto.append('payload_json', JSON.stringify(payloadFoto));
         formFoto.append('files[0]', fs.readFileSync(rutaFoto), { filename: 'trade_photo.png' });
         await axios.post(`${canalTradePhoto.webhook_url}?wait=true`, formFoto, { headers: formFoto.getHeaders(), timeout: 15000 });
+        return true;
     } catch (e) {
         console.error('DEBUG: error mandando la foto de Friend Trade al canal de Trading:', e?.response?.data || e?.message || e);
+        return false;
     }
 }
 
@@ -4000,7 +4007,7 @@ function carpetaBaseMuMu() {
     return path.dirname(path.dirname(managerPath));
 }
 
-function ejecutarSendTradeCard(winTitle, callback) {
+function ejecutarSendTradeCard(winTitle, callback, modo) {
     const ahkExe = rutaAutoHotkey();
     const folderPath = carpetaBaseMuMu();
     if (!ahkExe || !folderPath || !fs.existsSync(RUTA_SEND_TRADE_CARD_SCRIPT)) {
@@ -4009,7 +4016,9 @@ function ejecutarSendTradeCard(winTitle, callback) {
     // _FriendTradeOfferCard.ahk (2026-08-23) SI espera un 3er arg de outputFile (a diferencia
     // del viejo _SendTradeCard.ahk) -- mismo criterio que ejecutarFriendTradeAcceptOffer.
     const outputFile = path.join(os.tmpdir(), `ftrade_offer_${winTitle}_${Date.now()}.txt`);
-    spawnAhkConProteccion(ahkExe, [RUTA_SEND_TRADE_CARD_SCRIPT, winTitle, folderPath, outputFile], { windowsHide: false }, 3 * 60 * 1000, (ok, detalle) => {
+    const args = [RUTA_SEND_TRADE_CARD_SCRIPT, winTitle, folderPath, outputFile];
+    if (modo) args.push(modo);
+    spawnAhkConProteccion(ahkExe, args, { windowsHide: false }, 3 * 60 * 1000, (ok, detalle) => {
         try { if (fs.existsSync(outputFile)) fs.unlinkSync(outputFile); } catch (e) {}
         // outputFile devuelto (2026-08-23, a pedido explicito del usuario -- "igualito que
         // Main Trade"): de ahi sale el nombre real de la foto que este script guarda
@@ -9923,21 +9932,78 @@ client.on('interactionCreate', async interaction => {
                 return;
             }
 
-            await interaction.followUp({ content: `🔄 No pending offer found -- offering the wishlist card to your friend on instance **${nombre}**...`, ephemeral: true });
+            // Confirmacion visual antes de ofrecer (fork local, 2026-08-25, a pedido explicito
+            // del usuario): antes esto ofrecia la carta a ciegas. Ahora la fase "navigate" del
+            // script deja abierta la pantalla de elegir carta SIN tocarla y saca una foto; la
+            // foto va al canal de Trading con un boton Confirm, y recien al apretarlo corre la
+            // fase "confirm", que hace la oferta de siempre. No hay que tradear a mano, pero se
+            // ve QUE carta se va a mandar antes de mandarla.
+            await interaction.followUp({ content: `🔄 No pending offer found -- opening the card selection screen on instance **${nombre}** so you can check the card first...`, ephemeral: true });
 
             ejecutarSendTradeCard(nombre, async (ok, detalle, outputFile) => {
                 try {
                     if (!ok) {
-                        return await interaction.followUp({ content: `❌ Could not offer the card (${detalle}). Check that your friend has already accepted and is available in "Select a Friend".`, ephemeral: true });
+                        return await interaction.followUp({ content: `❌ Could not reach the card selection screen (${detalle}). Check that your friend has already accepted and is available to trade.`, ephemeral: true });
+                    }
+                    const rutaFotoConfirm = outputFile.replace(/\.txt$/, '_ConfirmPhoto.png');
+                    const filaConfirmar = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`mumu_ftconfirm_${index}::${nombre}`).setLabel('✅ Confirm').setStyle(ButtonStyle.Success),
+                        new ButtonBuilder().setCustomId(`mumu_ftcancel_${index}::${nombre}`).setLabel('❌ Cancel').setStyle(ButtonStyle.Danger)
+                    );
+                    const fotoEnviada = await mandarFotoFriendTradeAlCanal(
+                        interaction.user.id,
+                        rutaFotoConfirm,
+                        `<@${interaction.user.id}> Check the card about to be offered on instance **${nombre}**, then press **✅ Confirm**.`,
+                        [filaConfirmar]
+                    );
+                    // Si la foto no llego al canal (sin webhook de Trading, o la captura fallo),
+                    // el boton tiene que existir igual en algun lado o el flujo queda colgado sin
+                    // forma de seguir -- por eso va tambien en esta respuesta efimera.
+                    await interaction.followUp({
+                        content: fotoEnviada
+                            ? `🃏 Card selection screen is open on instance **${nombre}**. The screenshot is in your Trading channel -- press **✅ Confirm** once you have checked the card.`
+                            : `🃏 Card selection screen is open on instance **${nombre}**, but the screenshot could not be posted to your Trading channel. Check the emulator, then press **✅ Confirm**.`,
+                        components: [filaConfirmar],
+                        ephemeral: true
+                    });
+                } catch (e) {}
+            }, 'navigate');
+            return;
+        }
+
+        if (interaction.customId.startsWith('mumu_ftconfirm_')) {
+            const [index, nombre] = interaction.customId.replace('mumu_ftconfirm_', '').split('::');
+            await interaction.deferReply({ ephemeral: true });
+            await interaction.editReply({ content: `🔄 Confirmed -- offering the card on instance **${nombre}**...` });
+
+            const filaFinalizeConfirm = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`mumu_finalizetrade_${index}::${nombre}`).setLabel('🔄 Finalize Trade').setStyle(ButtonStyle.Success)
+            );
+
+            // Fase 2: el script arranca YA parado en la pantalla de elegir carta (la dejo asi la
+            // fase "navigate") y de ahi hace exactamente lo mismo que hacia antes.
+            ejecutarSendTradeCard(nombre, async (ok, detalle, outputFile) => {
+                try {
+                    if (!ok) {
+                        return await interaction.followUp({ content: `❌ Could not offer the card (${detalle}). The card selection screen may have timed out -- check the instance and start again with **▶️ Next Trade**.`, ephemeral: true });
                     }
                     const rutaFoto = outputFile.replace(/\.txt$/, '_OfferPhoto.png');
                     await mandarFotoFriendTradeAlCanal(interaction.user.id, rutaFoto, `<@${interaction.user.id}> Card offered on instance **${nombre}**.`);
                     await interaction.followUp({
                         content: `✅ Card offered on instance **${nombre}**, waiting for your partner's response.\n\nOnce your friend has offered their card, press **🔄 Finalize Trade**.`,
-                        components: [filaFinalize],
+                        components: [filaFinalizeConfirm],
                         ephemeral: true
                     });
                 } catch (e) {}
+            }, 'confirm');
+            return;
+        }
+
+        if (interaction.customId.startsWith('mumu_ftcancel_')) {
+            const [, nombre] = interaction.customId.replace('mumu_ftcancel_', '').split('::');
+            await interaction.reply({
+                content: `❌ Cancelled -- nothing was offered on instance **${nombre}**. The card selection screen is still open in the emulator; back out of it there, then press **▶️ Next Trade** to start over.`,
+                ephemeral: true
             });
             return;
         }

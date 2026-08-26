@@ -68,3 +68,6 @@ MonitorPokemonPanel.exe
 
 # runtime-refreshed copy of card_types.json (the tracked one is the shipped fallback)
 assets/card_types.local.json
+
+# config backups written by scripts/fix-config-owner.js
+database.db.backup-*

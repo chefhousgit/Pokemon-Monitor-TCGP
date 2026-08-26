@@ -70,6 +70,25 @@ async function main() {
     // broken" and is invisible from inside Discord.
     const owners = db.prepare(`SELECT DISTINCT discord_id FROM configs_canales WHERE discord_id IS NOT NULL`).all();
     console.log(`\ndistinct discord_id values in configs_canales: ${owners.map(o => o.discord_id).join(', ') || '(none)'}`);
+
+    // Per-owner breakdown. Every lookup in the bot is keyed on discord_id, so config split
+    // across two accounts means whichever one you click with sees only its own half -- the
+    // other account's rows are invisible to it, which reads as "set up but broken".
+    if (owners.length > 1) {
+        console.log('\n*** More than one account owns config rows -- this splits your setup. ***');
+        for (const o of owners) {
+            const filasO = db.prepare(`SELECT tipo, webhook_url FROM configs_canales WHERE discord_id = ?`).all(o.discord_id);
+            const conHook = filasO.filter(f => String(f.webhook_url || '').startsWith('https://discord.com/api/webhooks/'));
+            console.log(`\n  discord_id ${o.discord_id}: ${filasO.length} rows, ${conHook.length} with a webhook`);
+            const trading = filasO.find(f => f.tipo === 'cmd_run_instance');
+            console.log(`    cmd_run_instance (Trading): ${trading ? redactar(trading.webhook_url) : 'MISSING'}`);
+            if (trading) {
+                const r = await estado(trading.webhook_url);
+                console.log(`      -> ${r.detalle}`);
+            }
+        }
+        console.log('\n  The account you click with in Discord is the one whose rows get used.');
+    }
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
